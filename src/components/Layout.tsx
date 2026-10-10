@@ -97,8 +97,8 @@ export default function Layout({ currentPage, onPageChange, children }: LayoutPr
             <h2 className="text-lg font-semibold">
               {menuItems.find(i => i.id === currentPage)?.label}
             </h2>
-            <div className="text-sm text-gray-400">
-              {new Date().toLocaleDateString('uz-UZ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            <div className="text-sm text-gray-400 hidden sm:block">
+              🕐 Toshkent: {new Date().toLocaleTimeString('uz-UZ', { timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit' })}
             </div>
           </div>
         </header>

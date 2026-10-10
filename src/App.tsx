@@ -61,7 +61,7 @@ export default function App() {
       case 'dashboard':
         return (
           <div className="space-y-6">
-            <Dashboard transactions={transactions} settings={settings} />
+            <Dashboard transactions={transactions} settings={settings} onAddTransaction={handleAddTransaction} />
             {showCalendar && <CalendarView transactions={transactions} />}
             <div className="text-center">
               <button

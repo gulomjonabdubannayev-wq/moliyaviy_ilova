@@ -1,14 +1,18 @@
-import { Transaction, AppSettings } from '../types';
-import { formatCurrency, getDaysPassed, getDaysRemaining, formatShortCurrency } from '../utils/format';
-import { TrendingUp, TrendingDown, PiggyBank, Calendar, Target, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle } from 'lucide-react';
+import { Transaction, AppSettings, EXPENSE_CATEGORIES } from '../types';
+import { formatCurrency, getDaysPassed, getDaysRemaining, formatShortCurrency, getTodayStr } from '../utils/format';
+import { TrendingUp, TrendingDown, PiggyBank, Calendar, Target, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, Briefcase, Zap } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import TashkentTime from './TashkentTime';
+import WeatherWidget from './WeatherWidget';
+import QuickEntry from './QuickEntry';
 
 interface DashboardProps {
   transactions: Transaction[];
   settings: AppSettings;
+  onAddTransaction: (t: Transaction) => void;
 }
 
-export default function Dashboard({ transactions, settings }: DashboardProps) {
+export default function Dashboard({ transactions, settings, onAddTransaction }: DashboardProps) {
   const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
   const totalExpense = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
   const currentSavings = settings.initialBalance + totalIncome - totalExpense;
@@ -17,6 +21,29 @@ export default function Dashboard({ transactions, settings }: DashboardProps) {
   const progressPercent = Math.min(100, Math.max(0, (currentSavings / settings.savingsGoal) * 100));
   const dailyAvgExpense = daysPassed > 0 ? totalExpense / daysPassed : 0;
   const isOverBudget = dailyAvgExpense > settings.dailyLimit;
+
+  // 365 kunlik ish statistikasi
+  const todayStr = getTodayStr();
+  const todayTransactions = transactions.filter(t => t.date === todayStr);
+  const todayIncome = todayTransactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+  const todayExpense = todayTransactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const todayNet = todayIncome - todayExpense;
+
+  // Ish kunlari - qaysi kunlarda daromad bo'lgan
+  const workDays = new Set<string>();
+  transactions.filter(t => t.type === 'income').forEach(t => workDays.add(t.date));
+  
+  // Oxirgi 7 kunlik daromad
+  const last7DaysIncome = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - i));
+    const dateStr = date.toISOString().split('T')[0];
+    const income = transactions.filter(t => t.date === dateStr && t.type === 'income').reduce((s, t) => s + t.amount, 0);
+    return {
+      date: `${date.getDate()}/${date.getMonth() + 1}`,
+      daromad: income,
+    };
+  });
 
   // Last 30 days chart data
   const last30Days = Array.from({ length: 30 }, (_, i) => {
@@ -54,6 +81,19 @@ export default function Dashboard({ transactions, settings }: DashboardProps) {
   const monthData = getPeriodData(30);
   const quarterData = getPeriodData(90);
 
+  // Top expense categories
+  const categoryTotals: Record<string, number> = {};
+  transactions.filter(t => t.type === 'expense').forEach(t => {
+    categoryTotals[t.category] = (categoryTotals[t.category] || 0) + t.amount;
+  });
+  const topCategories = Object.entries(categoryTotals)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 5)
+    .map(([key, value]) => {
+      const cat = EXPENSE_CATEGORIES.find(c => c.value === key);
+      return { name: key, label: cat?.label || key, value, color: cat?.color || '#6b7280' };
+    });
+
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
@@ -75,7 +115,7 @@ export default function Dashboard({ transactions, settings }: DashboardProps) {
       {/* Warning */}
       {isOverBudget && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center gap-3">
-          <AlertTriangle className="text-red-400" size={20} />
+          <AlertTriangle className="text-red-400 flex-shrink-0" size={20} />
           <div>
             <p className="text-red-400 font-medium text-sm">⚠️ Ogohlantirish</p>
             <p className="text-red-300 text-xs mt-0.5">
@@ -85,24 +125,86 @@ export default function Dashboard({ transactions, settings }: DashboardProps) {
         </div>
       )}
 
+      {/* Top row: Time, Weather, Quick Entry */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <TashkentTime />
+        <WeatherWidget />
+        <QuickEntry onAdd={onAddTransaction} />
+      </div>
+
+      {/* 365 kunlik ish statistikasi */}
+      <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 rounded-2xl p-5 border border-amber-500/20">
+        <div className="flex items-center gap-2 mb-4">
+          <Briefcase size={18} className="text-amber-400" />
+          <span className="font-medium text-sm">365 kunlik ish statistikasi</span>
+        </div>
+        
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-gray-800/50 rounded-xl p-3">
+            <p className="text-xs text-gray-400">Bugungi daromad</p>
+            <p className="text-lg font-bold text-emerald-400 mt-1">{formatCurrency(todayIncome)}</p>
+          </div>
+          <div className="bg-gray-800/50 rounded-xl p-3">
+            <p className="text-xs text-gray-400">Bugungi xarajat</p>
+            <p className="text-lg font-bold text-red-400 mt-1">{formatCurrency(todayExpense)}</p>
+          </div>
+          <div className="bg-gray-800/50 rounded-xl p-3">
+            <p className="text-xs text-gray-400">Bugungi sof foyda</p>
+            <p className={`text-lg font-bold mt-1 ${todayNet >= 0 ? 'text-cyan-400' : 'text-red-400'}`}>
+              {formatCurrency(todayNet)}
+            </p>
+          </div>
+          <div className="bg-gray-800/50 rounded-xl p-3">
+            <p className="text-xs text-gray-400">Ish kunlari</p>
+            <p className="text-lg font-bold text-amber-400 mt-1">{workDays.size} kun</p>
+          </div>
+        </div>
+
+        {/* 7 kunlik daromad grafigi */}
+        <div className="mt-4 pt-4 border-t border-amber-500/10">
+          <p className="text-xs text-gray-400 mb-2 flex items-center gap-1">
+            <Zap size={12} className="text-amber-400" />
+            Oxirgi 7 kunlik daromad
+          </p>
+          <div className="flex items-end gap-1.5 h-16">
+            {last7DaysIncome.map((day, i) => {
+              const maxIncome = Math.max(...last7DaysIncome.map(d => d.daromad), 1);
+              const height = (day.daromad / maxIncome) * 100;
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                  <div className="w-full flex items-end h-12">
+                    <div
+                      className="w-full bg-gradient-to-t from-amber-500 to-yellow-400 rounded-t-sm transition-all duration-500 min-h-[2px]"
+                      style={{ height: `${Math.max(height, 4)}%` }}
+                      title={formatCurrency(day.daromad)}
+                    />
+                  </div>
+                  <span className="text-[10px] text-gray-500">{day.date}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
       {/* Main stats cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
-          title="Jami daromad"
+          title="Jami daromadim"
           value={formatCurrency(totalIncome)}
           icon={<TrendingUp size={20} />}
           color="emerald"
           subtitle={`Bu oy: ${formatCurrency(monthIncome)}`}
         />
         <StatCard
-          title="Jami xarajatlar"
+          title="Jami xarajatlarim"
           value={formatCurrency(totalExpense)}
           icon={<TrendingDown size={20} />}
           color="red"
           subtitle={`Bu oy: ${formatCurrency(monthExpense)}`}
         />
         <StatCard
-          title="Hozirgi jamg'arma"
+          title="Hozirgi jamg'armam"
           value={formatCurrency(currentSavings)}
           icon={<PiggyBank size={20} />}
           color="cyan"
@@ -117,7 +219,7 @@ export default function Dashboard({ transactions, settings }: DashboardProps) {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Target size={18} className="text-emerald-400" />
-              <span className="font-medium text-sm">365 kunlik maqsad</span>
+              <span className="font-medium text-sm">365 kunlik jamg'arma maqsadim</span>
             </div>
             <span className="text-emerald-400 font-bold text-lg">{progressPercent.toFixed(1)}%</span>
           </div>
@@ -145,7 +247,7 @@ export default function Dashboard({ transactions, settings }: DashboardProps) {
         <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700">
           <div className="flex items-center gap-2 mb-4">
             <Calendar size={18} className="text-blue-400" />
-            <span className="font-medium text-sm">365 kunlik davr</span>
+            <span className="font-medium text-sm">Yil boshidan beri</span>
           </div>
           
           <div className="grid grid-cols-2 gap-4">
@@ -159,7 +261,7 @@ export default function Dashboard({ transactions, settings }: DashboardProps) {
             </div>
             <div className="bg-gray-700/50 rounded-xl p-3">
               <p className="text-2xl font-bold text-emerald-400">{daysPassed + daysRemaining}</p>
-              <p className="text-xs text-gray-400 mt-1">Jami kunlar</p>
+              <p className="text-xs text-gray-400 mt-1">Jami kunlar (365)</p>
             </div>
             <div className="bg-gray-700/50 rounded-xl p-3">
               <p className="text-2xl font-bold text-amber-400">
@@ -178,32 +280,67 @@ export default function Dashboard({ transactions, settings }: DashboardProps) {
         <PeriodCard title="90 kun" data={quarterData} />
       </div>
 
-      {/* Chart */}
-      <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700">
-        <div className="flex items-center gap-2 mb-4">
-          <BarChart3 size={18} className="text-purple-400" />
-          <span className="font-medium text-sm">So'nggi 30 kun</span>
+      {/* Top categories + Chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Top categories */}
+        <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700">
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={18} className="text-amber-400" />
+            <span className="font-medium text-sm">Eng ko'p sarflangan</span>
+          </div>
+          <div className="space-y-3">
+            {topCategories.length === 0 ? (
+              <p className="text-center text-gray-500 text-sm py-4">Ma'lumot yo'q</p>
+            ) : (
+              topCategories.map((cat, i) => {
+                const total = topCategories.reduce((s, c) => s + c.value, 0);
+                const percent = total > 0 ? (cat.value / total) * 100 : 0;
+                return (
+                  <div key={i} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-300">{cat.label}</span>
+                      <span className="text-xs font-medium text-white">{formatCurrency(cat.value)}</span>
+                    </div>
+                    <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${percent}%`, backgroundColor: cat.color }}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={last30Days}>
-              <defs>
-                <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="daromad" stroke="#22c55e" fillOpacity={1} fill="url(#colorIncome)" strokeWidth={2} />
-              <Area type="monotone" dataKey="xarajat" stroke="#ef4444" fillOpacity={1} fill="url(#colorExpense)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
+
+        {/* Chart */}
+        <div className="lg:col-span-2 bg-gray-800 rounded-2xl p-5 border border-gray-700">
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={18} className="text-purple-400" />
+            <span className="font-medium text-sm">So'nggi 30 kun — Daromad va Xarajat</span>
+          </div>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={last30Days}>
+                <defs>
+                  <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area type="monotone" dataKey="daromad" name="Daromad" stroke="#22c55e" fillOpacity={1} fill="url(#colorIncome)" strokeWidth={2} />
+                <Area type="monotone" dataKey="xarajat" name="Xarajat" stroke="#ef4444" fillOpacity={1} fill="url(#colorExpense)" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
     </div>
